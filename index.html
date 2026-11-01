@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid Power Plant Architecture | Interactive Purdue Model (IEC 62443)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        industrial: {
+                            950: '#060a12',
+                            900: '#0d1527',
+                            800: '#17223b',
+                            700: '#263554',
+                            600: '#3d4f73',
+                            500: '#5c729f',
+                            400: '#8ba0c7',
+                            300: '#cbd5e1',
+                            200: '#e2e8f0',
+                        },
+                        scada: {
+                            cyan: '#06b6d4',
+                            blue: '#3b82f6',
+                            emerald: '#10b981',
+                            amber: '#f59e0b',
+                            rose: '#f43f5e',
+                            purple: '#8b5cf6',
+                            red: '#ef4444'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome & Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #060a12; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Interactive card effects */
+        .node-card {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .node-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px -4px rgba(6, 182, 212, 0.25);
+        }
+        .node-card.dimmed {
+            opacity: 0.15;
+            filter: grayscale(0.8);
+            pointer-events: none;
+        }
+        .node-card.selected {
+            border-color: #06b6d4 !important;
+            box-shadow: 0 0 18px rgba(6, 182, 212, 0.4);
+        }
+
+        /* Dynamic Animated Bus Flows */
+        .flow-bus {
+            position: relative;
+            overflow: hidden;
+        }
+        .flow-bus::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.8), transparent);
+            animation: busFlow 3s infinite linear;
+        }
+        .flow-bus.goose-active::after {
+            background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.9), transparent);
+            animation: busFlow 1s infinite linear;
+        }
+        .flow-bus.syslog-active::after {
+            background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.8), transparent);
+            animation: busFlow 2s infinite linear;
+        }
+
+        @keyframes busFlow {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* Pulse Failover */
+        .heartbeat-active {
+            animation: pulseGreen 1.5s infinite;
+        }
+        .heartbeat-fault {
+            animation: pulseRed 0.6s infinite;
+        }
+
+        @keyframes pulseGreen {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.96); }
+        }
+        @keyframes pulseRed {
+            0%, 100% { opacity: 1; border-color: #ef4444; }
+            50% { opacity: 0.3; border-color: #7f1d1d; }
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #060a12; }
+        ::-webkit-scrollbar-thumb { background: #263554; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3d4f73; }
+    </style>
+</head>
+<body class="text-industrial-100 min-h-screen flex flex-col">
+
+    <!-- Top Navigation & Live Telemetry Bar -->
+    <header class="bg-industrial-900 border-b border-industrial-800 sticky top-0 z-40 px-4 lg:px-8 py-3 flex flex-wrap justify-between items-center shadow-xl gap-4">
+        <div class="flex items-center space-x-3">
+            <div class="bg-scada-cyan/10 p-2.5 rounded-xl border border-scada-cyan/30 text-scada-cyan">
+                <i class="fa-solid fa-network-wired text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-sm lg:text-base font-bold text-white tracking-wide">HYBRID POWER PLANT INDUSTRIAL ARCHITECTURE</h1>
+                <p class="text-xs text-scada-cyan font-mono">Purdue Model (L0–L4) • IEC 62443 Security Alignment • Solar PV + OPV + BESS</p>
+            </div>
+        </div>
+
+        <!-- Simulation Control & Stats -->
+        <div class="flex items-center space-x-3 flex-wrap gap-y-2">
+            <!-- PPC Failover Simulator Trigger -->
+            <button onclick="togglePPCFailover()" id="ppc-sim-btn" class="bg-industrial-800 hover:bg-industrial-700 text-industrial-100 border border-industrial-700 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition flex items-center space-x-2">
+                <span id="ppc-sim-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span id="ppc-sim-text">Simulate PPC A Failover</span>
+            </button>
+
+            <!-- Bus Flow Toggle -->
+            <button onclick="toggleFlowAnimation()" id="flow-btn" class="bg-industrial-800 hover:bg-industrial-700 text-scada-cyan border border-industrial-700 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition flex items-center space-x-2">
+                <i class="fa-solid fa-bolt-lightning text-scada-cyan"></i>
+                <span id="flow-text">Bus Traffic: Animated</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Subsystem Filter & Real-Time Search Toolbar -->
+    <div class="bg-industrial-900/80 border-b border-industrial-800 px-4 lg:px-8 py-2.5 flex flex-wrap items-center justify-between gap-4">
+        <!-- Filter Buttons -->
+        <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 shrink-0">
+            <span class="text-xs font-semibold text-industrial-400 uppercase tracking-wider mr-2 text-[11px]">Subsystem:</span>
+            <button onclick="filterSubsystem('all')" id="filter-all" class="filter-btn active bg-scada-cyan text-industrial-950 font-bold px-3 py-1 rounded-md text-xs transition">All Assets</button>
+            <button onclick="filterSubsystem('solar')" id="filter-solar" class="filter-btn bg-industrial-800 hover:bg-industrial-700 text-amber-400 border border-amber-500/30 px-3 py-1 rounded-md text-xs transition">Solar PV</button>
+            <button onclick="filterSubsystem('opv')" id="filter-opv" class="filter-btn bg-industrial-800 hover:bg-industrial-700 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-md text-xs transition">Organic PV (OPV)</button>
+            <button onclick="filterSubsystem('bess')" id="filter-bess" class="filter-btn bg-industrial-800 hover:bg-industrial-700 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-md text-xs transition">BESS Storage</button>
+            <button onclick="filterSubsystem('grid')" id="filter-grid" class="filter-btn bg-industrial-800 hover:bg-industrial-700 text-purple-400 border border-purple-500/30 px-3 py-1 rounded-md text-xs transition">Substation / Grid</button>
+            <button onclick="filterSubsystem('security')" id="filter-security" class="filter-btn bg-industrial-800 hover:bg-industrial-700 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-md text-xs transition">Cyber Security & Mgmt</button>
+        </div>
+
+        <!-- Search Input -->
+        <div class="relative w-full sm:w-64">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-industrial-500 text-xs"></i>
+            <input type="text" id="search-input" oninput="handleSearch()" placeholder="Search node, protocol, or tag..." class="w-full bg-industrial-950 border border-industrial-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-industrial-100 placeholder-industrial-500 focus:outline-none focus:border-scada-cyan transition">
+        </div>
+    </div>
+
+    <!-- Main Content Layout -->
+    <main class="flex-1 p-4 lg:p-6 max-w-[1920px] mx-auto w-full grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        <!-- Diagram Topology Column (3 Columns) -->
+        <div class="lg:col-span-3 flex flex-col space-y-4">
+
+            <!-- LEVEL 4 -->
+            <div class="bg-industrial-900/90 border border-scada-rose/30 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3 pb-2 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-scada-rose/20 text-scada-rose text-xs font-mono font-bold px-2 py-0.5 rounded border border-scada-rose/30">LEVEL 4</span>
+                        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Enterprise & Grid Interconnection Zone</h3>
+                    </div>
+                    <span class="text-[11px] font-mono text-industrial-400">WAN / IPsec Encrypted / TLS 1.3</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div onclick="inspectNode('tso_dso')" data-node="tso_dso" data-subsystems="grid security" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-rose/10 text-scada-rose px-2 py-0.5 rounded">Grid Dispatch</span>
+                            <i class="fa-solid fa-tower-broadcast text-scada-rose"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">TSO / DSO Control Center</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Utility grid dispatch & telemetry feed.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">IEC 60870-5-104 / DNP3</div>
+                    </div>
+
+                    <div onclick="inspectNode('ems_aggregator')" data-node="ems_aggregator" data-subsystems="solar opv bess grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-rose/10 text-scada-rose px-2 py-0.5 rounded">Market API</span>
+                            <i class="fa-solid fa-cloud-bolt text-scada-rose"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Aggregator EMS / Market</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Spot market & fast frequency response dispatch.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">REST API / MQTT over HTTPS</div>
+                    </div>
+
+                    <div onclick="inspectNode('enterprise_hq')" data-node="enterprise_hq" data-subsystems="security" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-rose/10 text-scada-rose px-2 py-0.5 rounded">Corporate IT</span>
+                            <i class="fa-solid fa-building text-scada-rose"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Enterprise IT Headquarters</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Corporate ERP & executive dashboard WAN gateway.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">IPsec Tunnel / TLS</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LEVEL 3.5 INDUSTRIAL DMZ -->
+            <div id="bus-dmz" class="flow-bus bg-industrial-950 border border-scada-red/40 rounded-xl p-3">
+                <div class="flex items-center justify-between mb-2.5 pb-1.5 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-scada-red/20 text-scada-red text-xs font-mono font-bold px-2 py-0.5 rounded border border-scada-red/30">LEVEL 3.5</span>
+                        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Industrial DMZ & Cyber Security Access Zone (IEC 62443)</h3>
+                    </div>
+                    <span class="text-[11px] font-mono text-scada-red">Dual Stateful Firewalls / Strict Inspection</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div onclick="inspectNode('pam_wallix')" data-node="pam_wallix" data-subsystems="security" class="node-card bg-industrial-900 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-red/20 text-scada-red px-2 py-0.5 rounded">Access Gateway</span>
+                            <i class="fa-solid fa-shield-halved text-scada-red"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Privileged Access Mgmt (WALLIX PAM / MFA)</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">MFA authentication, session proxying & video vaulting.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">HTTPS / SSH / RDP Proxy</div>
+                    </div>
+
+                    <div onclick="inspectNode('jump_host')" data-node="jump_host" data-subsystems="security" class="node-card bg-industrial-900 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-red/20 text-scada-red px-2 py-0.5 rounded">Vendor Access</span>
+                            <i class="fa-solid fa-laptop-code text-scada-red"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Secure Jump Hosts</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Isolated bastion hosts for remote OT engineering work.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">RDP / SSH Bastion</div>
+                    </div>
+
+                    <div onclick="inspectNode('dmz_proxy')" data-node="dmz_proxy" data-subsystems="security" class="node-card bg-industrial-900 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-red/20 text-scada-red px-2 py-0.5 rounded">Data Relay</span>
+                            <i class="fa-solid fa-server text-scada-red"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">DMZ Reverse Proxy / Relay</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Unidirectional data forwarder preventing inbound OT polling.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">TLS 1.3 Relay</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LEVEL 3 -->
+            <div class="bg-industrial-900/90 border border-scada-purple/30 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3 pb-2 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-scada-purple/20 text-scada-purple text-xs font-mono font-bold px-2 py-0.5 rounded border border-scada-purple/30">LEVEL 3</span>
+                        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Operations Control Room & Shared Management Services</h3>
+                    </div>
+                    <span class="text-[11px] font-mono text-industrial-400">10GbE Redundant Fiber / OPC UA / Syslog</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div onclick="inspectNode('scada')" data-node="scada" data-subsystems="solar opv bess grid security" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">Primary HMI</span>
+                            <i class="fa-solid fa-desktop text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Redundant SCADA (Master A & B)</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Dual active-standby control servers.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">OPC UA / Modbus TCP</div>
+                    </div>
+
+                    <div onclick="inspectNode('bazefield')" data-node="bazefield" data-subsystems="solar opv bess" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">Analytics</span>
+                            <i class="fa-solid fa-chart-line text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Bazefield PC Server</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Silicon vs OPV yield optimization.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">OPC UA Client</div>
+                    </div>
+
+                    <div onclick="inspectNode('historian')" data-node="historian" data-subsystems="solar opv bess grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">Database</span>
+                            <i class="fa-solid fa-database text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Plant Historian Server</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">High-density time-series logging engine.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">OPC HDA / SQL</div>
+                    </div>
+
+                    <div onclick="inspectNode('log_collector')" data-node="log_collector" data-subsystems="security" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">SIEM Logs</span>
+                            <i class="fa-solid fa-box-archive text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Log Collector Server (SIEM)</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Central audit log & event aggregator.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Syslog-ng / TLS</div>
+                    </div>
+
+                    <div onclick="inspectNode('ntp_clock')" data-node="ntp_clock" data-subsystems="security grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">GNSS Time</span>
+                            <i class="fa-solid fa-clock text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Hardware NTP Master Clock</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">GNSS time sync for IED sequence of events.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">NTP / IEEE 1588 PTP</div>
+                    </div>
+
+                    <div onclick="inspectNode('wsus_patch')" data-node="wsus_patch" data-subsystems="security" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">Patch Repo</span>
+                            <i class="fa-solid fa-cloud-arrow-down text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">WSUS / Firmware Server</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Staged OS and controller patch repository.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">HTTPS / HTTPS Proxy</div>
+                    </div>
+
+                    <div onclick="inspectNode('antivirus_edr')" data-node="antivirus_edr" data-subsystems="security" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer col-span-1 sm:col-span-2">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-purple/10 text-scada-purple px-2 py-0.5 rounded">Endpoint Security</span>
+                            <i class="fa-solid fa-shield-virus text-scada-purple"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Antivirus / EDR Console</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Centralized endpoint agent monitoring and offline signature distribution for OT nodes.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">TLS Agent Pull</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BUS SEPARATOR LEVEL 2/3 -->
+            <div id="bus-plant" class="flow-bus bg-industrial-950 border border-scada-cyan/40 rounded-lg p-2 flex justify-between items-center text-xs font-mono">
+                <span class="text-scada-cyan font-semibold"><i class="fa-solid fa-network-wired mr-2"></i>Plant Network Backbone (IEC 62439-3 PRP / High-Speed Ring)</span>
+                <span class="text-industrial-400 text-[11px]">Modbus TCP • IEC 61850 MMS • OPC UA • Syslog</span>
+            </div>
+
+            <!-- LEVEL 2 -->
+            <div class="bg-industrial-900/90 border border-scada-cyan/30 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3 pb-2 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-scada-cyan/20 text-scada-cyan text-xs font-mono font-bold px-2 py-0.5 rounded border border-scada-cyan/30">LEVEL 2</span>
+                        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Plant Supervisory Controller & Substation Automation Zone</h3>
+                    </div>
+                    <span class="text-[11px] font-mono text-industrial-400">IEC 61850 GOOSE/MMS • Redundant Ethernet</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <!-- Redundant PPC Node with Failover Visuals -->
+                    <div id="ppc-node-card" onclick="inspectNode('ppc')" data-node="ppc" data-subsystems="solar opv bess grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span id="ppc-badge" class="text-[10px] font-mono bg-scada-cyan/20 text-scada-cyan px-2 py-0.5 rounded font-semibold">Master A (Active)</span>
+                            <span id="ppc-pulse-icon" class="w-2.5 h-2.5 rounded-full bg-emerald-500 heartbeat-active"></span>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Redundant PPC (Master A & B)</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Closed-loop voltage, frequency & P/Q control.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus TCP / Ethernet Heartbeat</div>
+                    </div>
+
+                    <div onclick="inspectNode('sas_rtu')" data-node="sas_rtu" data-subsystems="grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-cyan/10 text-scada-cyan px-2 py-0.5 rounded">Gateway</span>
+                            <i class="fa-solid fa-server text-scada-cyan"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Substation Automation (SAS) / RTU</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Substation telemetry aggregator & bay gateway.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">IEC 61850 MMS / IEC 104</div>
+                    </div>
+
+                    <div onclick="inspectNode('relays_ieds')" data-node="relays_ieds" data-subsystems="grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-cyan/10 text-scada-cyan px-2 py-0.5 rounded">Protection</span>
+                            <i class="fa-solid fa-shield-dog text-scada-cyan"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Protection Relays & IEDs</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Transformer, line & feeder protection relays.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">IEC 61850 GOOSE (&lt;4ms)</div>
+                    </div>
+
+                    <div onclick="inspectNode('revenue_meter')" data-node="revenue_meter" data-subsystems="grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-cyan/10 text-scada-cyan px-2 py-0.5 rounded">PCC Tariff</span>
+                            <i class="fa-solid fa-gauge-high text-scada-cyan"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">High-Precision Power Meter</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Class 0.2S billing tariff meter at grid POI.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus TCP / DNP3</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BUS SEPARATOR LEVEL 1/2 -->
+            <div id="bus-field" class="flow-bus bg-industrial-950 border border-scada-blue/40 rounded-lg p-2 flex justify-between items-center text-xs font-mono">
+                <span class="text-scada-blue font-semibold"><i class="fa-solid fa-diagram-project mr-2"></i>Field Array & Collector Bus (RSTP Fiber Ring)</span>
+                <span class="text-industrial-400 text-[11px]">Modbus TCP • SunSpec • CANopen • RS485</span>
+            </div>
+
+            <!-- LEVEL 1 -->
+            <div class="bg-industrial-900/90 border border-scada-blue/30 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3 pb-2 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-scada-blue/20 text-scada-blue text-xs font-mono font-bold px-2 py-0.5 rounded border border-scada-blue/30">LEVEL 1</span>
+                        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Local Automation & Unit Controllers Zone</h3>
+                    </div>
+                    <span class="text-[11px] font-mono text-industrial-400">Direct Unit Controllers</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div onclick="inspectNode('pv_inverters')" data-node="pv_inverters" data-subsystems="solar" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-blue/10 text-scada-blue px-1.5 py-0.5 rounded">Silicon PV</span>
+                            <i class="fa-solid fa-solar-panel text-scada-blue"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Solar PV Inverters</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Central/String PV converters.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus TCP / SunSpec</div>
+                    </div>
+
+                    <div onclick="inspectNode('opv_inverters')" data-node="opv_inverters" data-subsystems="opv" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-blue/10 text-scada-blue px-1.5 py-0.5 rounded">Organic PV</span>
+                            <i class="fa-solid fa-leaf text-scada-blue"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">OPV String Inverters</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Wide-range MPPT string inverters.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus RTU (RS485)</div>
+                    </div>
+
+                    <div onclick="inspectNode('pvh_controllers')" data-node="pvh_controllers" data-subsystems="solar" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-blue/10 text-scada-blue px-1.5 py-0.5 rounded">MBox / TBox</span>
+                            <i class="fa-solid fa-arrows-spin text-scada-blue"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">PVH Tracker Controllers</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Master meteorological & tracker box.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus RTU / LoRaWAN</div>
+                    </div>
+
+                    <div onclick="inspectNode('pcs')" data-node="pcs" data-subsystems="bess grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-blue/10 text-scada-blue px-1.5 py-0.5 rounded">4-Quadrant</span>
+                            <i class="fa-solid fa-bolt-auto text-scada-blue"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">BESS PCS Inverters</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Bi-directional AC/DC converters.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus TCP</div>
+                    </div>
+
+                    <div onclick="inspectNode('master_bms')" data-node="master_bms" data-subsystems="bess" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-scada-blue/10 text-scada-blue px-1.5 py-0.5 rounded">Master BMS</span>
+                            <i class="fa-solid fa-battery-three-quarters text-scada-blue"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Master BMS Controller</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Container safety & SoC controller.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Modbus TCP / CANopen</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LEVEL 0 -->
+            <div class="bg-industrial-900/90 border border-emerald-500/30 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3 pb-2 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-emerald-500/20 text-emerald-400 text-xs font-mono font-bold px-2 py-0.5 rounded border border-emerald-500/30">LEVEL 0</span>
+                        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Physical Process Equipment, High Voltage & Actuators</h3>
+                    </div>
+                    <span class="text-[11px] font-mono text-industrial-400">Primary Power Assets & Direct Sensors</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                    <div onclick="inspectNode('hv_transformer')" data-node="hv_transformer" data-subsystems="grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">Main Trafo</span>
+                            <i class="fa-solid fa-bolt text-emerald-400"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">HV Step-Up Transformer</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Main 33kV/110-400kV transformer.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Analog Probes & Buchholz</div>
+                    </div>
+
+                    <div onclick="inspectNode('hv_switchgear')" data-node="hv_switchgear" data-subsystems="grid" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">Breakers</span>
+                            <i class="fa-solid fa-toggle-on text-emerald-400"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">HV Switchgear & Breakers</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">SF6 breakers & disconnectors.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Hardwired Binary I/O</div>
+                    </div>
+
+                    <div onclick="inspectNode('pv_array')" data-node="pv_array" data-subsystems="solar" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">Silicon PV</span>
+                            <i class="fa-solid fa-solar-panel text-emerald-400"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Solar PV Arrays</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Bifacial ground-mount panels.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">DC Generation Strings</div>
+                    </div>
+
+                    <div onclick="inspectNode('opv_array')" data-node="opv_array" data-subsystems="opv" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">Flexible OPV</span>
+                            <i class="fa-solid fa-leaf text-emerald-400"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">Organic PV (OPV) Array</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Flexible printed thin-film arrays.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">DC Conductors</div>
+                    </div>
+
+                    <div onclick="inspectNode('tracker_dbox')" data-node="tracker_dbox" data-subsystems="solar" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">DBox Motor</span>
+                            <i class="fa-solid fa-gear text-emerald-400"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">PVH Tracker Actuators</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">Slew drives & motor positioners.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Direct Motor Wiring</div>
+                    </div>
+
+                    <div onclick="inspectNode('battery_racks')" data-node="battery_racks" data-subsystems="bess" class="node-card bg-industrial-950 border border-industrial-700 p-3 rounded-lg cursor-pointer">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">LFP Cells</span>
+                            <i class="fa-solid fa-car-battery text-emerald-400"></i>
+                        </div>
+                        <h4 class="text-xs font-bold text-white">BESS Battery Racks</h4>
+                        <p class="text-[11px] text-industrial-400 mt-1">1500V LFP racks & tray BMS.</p>
+                        <div class="mt-2 text-[10px] font-mono text-scada-cyan">Internal CAN 2.0B Bus</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Dynamic Node Inspector Panel (1 Column) -->
+        <div class="lg:col-span-1">
+            <div class="bg-industrial-900 border border-industrial-800 rounded-xl p-5 sticky top-20 shadow-2xl flex flex-col min-h-[560px]">
+                <div class="flex items-center justify-between pb-3 border-b border-industrial-800">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-scada-cyan animate-pulse"></span>
+                        <h3 class="text-xs font-mono uppercase text-industrial-400 tracking-wider">Equipment Inspector</h3>
+                    </div>
+                    <span id="inspector-level" class="text-[10px] font-mono bg-scada-cyan/10 text-scada-cyan px-2 py-0.5 rounded border border-scada-cyan/30">Select Any Node</span>
+                </div>
+
+                <div id="inspector-body" class="flex-1 py-4 space-y-4 text-xs">
+                    <div class="text-center py-20 text-industrial-500 space-y-3">
+                        <i class="fa-solid fa-hand-pointer text-4xl text-industrial-600"></i>
+                        <p class="text-xs leading-relaxed">Click any block in the Purdue Model topology to view detailed operational roles, communication protocols, redundancy mechanisms, and IEC 62443 cyber security policies.</p>
+                    </div>
+                </div>
+
+                <div class="pt-3 border-t border-industrial-800 text-[11px] text-industrial-400 flex justify-between items-center font-mono">
+                    <span>IEC 62443 Compliance</span>
+                    <span class="text-emerald-400 font-semibold"><i class="fa-solid fa-shield-check mr-1"></i>SL-2 Active</span>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Data Dictionary & JavaScript Logic -->
+    <script>
+        const nodesData = {
+            'tso_dso': {
+                title: 'TSO / DSO Control Center Interface',
+                level: 'Purdue Level 4',
+                role: 'Utility Grid Dispatch Gateway',
+                protocols: 'IEC 60870-5-104, DNP3 Secure, IEC 61850 MMS',
+                phy: 'Leased Optical Fiber WAN / Encrypted IPsec VPN',
+                redundancy: 'Dual Active-Standby WAN Routers with BGP Auto-Failover',
+                cyber: 'Level 4/3.5 Perimetric Firewall with Deep Packet Inspection (DPI)',
+                desc: 'Receives utility active/reactive power dispatch, dynamic curtailment orders, and emergency frequency control setpoints from regional transmission operators.'
+            },
+            'ems_aggregator': {
+                title: 'EMS for Aggregator / Market Interface',
+                level: 'Purdue Level 4',
+                role: 'Market Optimization & VPP Interface',
+                protocols: 'REST API (HTTPS / TLS 1.3), MQTT, DNP3',
+                phy: 'Dual Enterprise Broadband Connections',
+                redundancy: 'Cloud Active-Active API Gateways with Automatic Traffic Shifting',
+                cyber: 'DMZ Reverse Proxy Relay, OAuth 2.0 Bearer Tokens, Mutual TLS (mTLS)',
+                desc: 'Interfaces with Virtual Power Plant (VPP) aggregators to execute fast frequency regulation (FCR/aFRR) and spot-market energy arbitrage using BESS storage.'
+            },
+            'enterprise_hq': {
+                title: 'Enterprise IT Headquarters',
+                level: 'Purdue Level 4',
+                role: 'Corporate Management Network',
+                protocols: 'HTTPS, IPsec, SFTP, SQL',
+                phy: 'Corporate MPLS / SD-WAN Network',
+                redundancy: 'Dual Carrier Enterprise WAN Links',
+                cyber: 'Corporate Firewall with Zero Trust Network Access (ZTNA)',
+                desc: 'Corporate network domain used by management for long-term generation reporting, billing reconciliation, and high-level portfolio performance tracking.'
+            },
+            'pam_wallix': {
+                title: 'Privileged Access Management (WALLIX PAM)',
+                level: 'Purdue Level 3.5 (Industrial DMZ)',
+                role: 'Zero Trust Remote Access Gateway',
+                protocols: 'HTTPS, SSH, RDP, Radius / TACACS+',
+                phy: '1GbE Industrial Ethernet',
+                redundancy: 'High-Availability Active-Passive Appliance Cluster',
+                cyber: 'MFA Enforcement, Session Key Vaulting, Real-time RDP Video Recording',
+                desc: 'Terminates all external remote access connections. Requires MFA before granting proxied session access to Level 3 HMIs or Level 2 controllers.'
+            },
+            'jump_host': {
+                title: 'Secure Jump Hosts (Bastion Servers)',
+                level: 'Purdue Level 3.5 (Industrial DMZ)',
+                role: 'Isolated OT Engineering Bastion',
+                protocols: 'RDP / SSH over TLS',
+                phy: '1GbE Virtualized Server Stack',
+                redundancy: 'Load-Balanced Dual Virtual Machines',
+                cyber: 'No Clipboard/Drive Redirection, Hardened OS Baseline, Session Auto-Kill',
+                desc: 'Staging servers where internal engineers and external vendors perform controller programming, SCADA configuration, and protection relay maintenance.'
+            },
+            'dmz_proxy': {
+                title: 'DMZ Reverse Proxy & Data Relay',
+                level: 'Purdue Level 3.5 (Industrial DMZ)',
+                role: 'Unidirectional Telemetry Forwarder',
+                protocols: 'HTTPS, Syslog over TLS, OPC UA PubSub',
+                phy: '1GbE Dual NIC Network Segmentation',
+                redundancy: 'Active-Standby Dual Proxy Service',
+                cyber: 'Strict Inbound Block Rules; Unidirectional Polling Buffer',
+                desc: 'Buffers OT telemetry data leaving Level 3 and forwards it to Level 4 enterprise systems without allowing direct inbound IP connections into the OT zone.'
+            },
+            'scada': {
+                title: 'Redundant SCADA Master Servers (A & B)',
+                level: 'Purdue Level 3',
+                role: 'Central Supervisory HMI & Alarm Engine',
+                protocols: 'OPC UA, Modbus TCP, DNP3, IEC 60870-5-104',
+                phy: '10GbE Redundant Optical LAN',
+                redundancy: 'Dual Active-Standby Server Pair with Real-Time Tag Replication',
+                cyber: 'RBAC Enforcement, Local Windows Firewall Inbound Rules, Encrypted OPC UA',
+                desc: 'Central supervisory engine providing HMI single-line diagrams, alarm tracking, sequence-of-events logging, and plant-wide manual override controls.'
+            },
+            'bazefield': {
+                title: 'Bazefield RES Performance Analytics Platform',
+                level: 'Purdue Level 3',
+                role: 'Renewable Yield & Loss Analytics',
+                protocols: 'OPC UA Client, REST API, SQL Connections',
+                phy: '1GbE Industrial Server Bus',
+                redundancy: 'Virtual Machine HA Clustering',
+                cyber: 'Read-Only OPC UA Tags, Isolated Analytics Service Account',
+                desc: 'Specialized RES software comparing solar irradiance vs electrical output to compute Performance Ratio (PR) and track degradation between Silicon PV and Flexible OPV.'
+            },
+            'historian': {
+                title: 'Enterprise Plant Historian (OSIsoft PI)',
+                level: 'Purdue Level 3',
+                role: 'High-Density Time-Series Database',
+                protocols: 'OPC HDA, Modbus TCP, SQL Engine',
+                phy: 'High-Speed Enterprise SAN Storage Array',
+                redundancy: 'Dual Historian Mirroring with Automatic Compression Synchronization',
+                cyber: 'Strict Read-Only Query Interfaces to Level 3.5 DMZ Proxy',
+                desc: 'Continuously logs sub-second telemetry tags (10ms transient event logs, 1s continuous trends) across all generation blocks, BESS racks, and grid meters.'
+            },
+            'log_collector': {
+                title: 'Log Collector Server (SIEM Aggregator)',
+                level: 'Purdue Level 3',
+                role: 'Central Security & Event Audit Logger',
+                protocols: 'Syslog-ng, Encrypted TLS Syslog, SNMP Traps',
+                phy: '1GbE Management Network Interface',
+                redundancy: 'Dual Storage Array with Write-Once Storage Vaulting',
+                cyber: 'Cryptographic Log Signing, Immutable Audit Logs (NIS 2 / NERC CIP compliant)',
+                desc: 'Collects security audit trails, firewall state logs, PAM access records, and controller diagnostic logs across the entire plant for automated anomaly detection.'
+            },
+            'ntp_clock': {
+                title: 'Hardware NTP/PTP Master Clock',
+                level: 'Purdue Level 3',
+                role: 'Precision Network Time Synchronization',
+                protocols: 'NTP, IEEE 1588 PTP (Precision Time Protocol)',
+                phy: 'Dedicated GNSS Antenna Cable + Dual Ethernet',
+                redundancy: 'Dual GNSS (GPS/GLONASS) Receivers + Internal Rubidium Holdover',
+                cyber: 'Dedicated Time Network Segment, Physical Antenna Anti-Jamming',
+                desc: 'Provides sub-millisecond clock synchronization across all SCADA servers, Protection Relays, RTUs, and Historians to enable accurate Sequence-of-Events (SOE) reconstruction.'
+            },
+            'wsus_patch': {
+                title: 'WSUS / Controller Firmware Server',
+                level: 'Purdue Level 3',
+                role: 'Staged Patch & Firmware Repository',
+                protocols: 'HTTPS, SMB3, Vendor Proprietary OTA',
+                phy: '1GbE Management VLAN',
+                redundancy: 'Local Storage Backup Image Set',
+                cyber: 'Digital Signature Firmware Verification, Offline Staging Pipeline',
+                desc: 'Stores pre-validated operating system patches, antivirus signatures, and PLC/PPC firmware binaries before controlled deployment into OT environments.'
+            },
+            'antivirus_edr': {
+                title: 'Antivirus / EDR Management Console',
+                level: 'Purdue Level 3',
+                role: 'Centralized Endpoint Protection',
+                protocols: 'TLS Encrypted Agent Management',
+                phy: '1GbE Management VLAN',
+                redundancy: 'Dual Appliance VM Failover',
+                cyber: 'Local Offline Signature Updates, Behavioral Anomaly Blocking',
+                desc: 'Manages antivirus definition pushes and endpoint detection/response (EDR) agents across Windows SCADA servers, Historians, and Engineering Workstations.'
+            },
+            'ppc': {
+                title: 'Redundant Power Plant Controller (PPC Master A & B)',
+                level: 'Purdue Level 2',
+                role: 'Active/Standby Closed-Loop Power Controller',
+                protocols: 'Modbus TCP, PROFINET, IEC 61850 MMS',
+                phy: 'Dual Industrial Fiber Ring (IEC 62439-3 PRP)',
+                redundancy: 'Hot-Standby Master/Slave PLCs with <100ms Heartbeat Failover',
+                cyber: 'IEC 62443-4-2 SL-2 Hardware Certification, Signed Controller Binaries',
+                desc: 'Executes closed-loop grid power control at the POI. Dynamically throttles Solar PV, OPV, and charges/discharges BESS to regulate voltage, frequency, and P/Q setpoints.'
+            },
+            'sas_rtu': {
+                title: 'Substation Automation System (SAS) / RTU',
+                level: 'Purdue Level 2',
+                role: 'Substation Bay Gateway & Tele-Control',
+                protocols: 'IEC 61850 MMS, IEC 60870-5-104, DNP3',
+                phy: 'Optical Substation Bus Ring',
+                redundancy: 'Dual Power Supply & Dual Processor Module Architecture',
+                cyber: 'Physical Port Locking, Disable Unused Protocols, IEC 62351 Security',
+                desc: 'Aggregates substation bay status, manages automated breaker sequences, and serves as the primary telemetry interface between protection relays and TSO dispatch.'
+            },
+            'relays_ieds': {
+                title: 'Protection Relays & Feeder IEDs',
+                level: 'Purdue Level 2',
+                role: 'Substation & Busbar Protection',
+                protocols: 'IEC 61850 GOOSE, IEC 61850 MMS, Modbus TCP',
+                phy: 'Dual Optical Ethernet Bus (100Base-FX)',
+                redundancy: 'Main 1 and Main 2 Redundant Protection Schemes',
+                cyber: 'Hardware Key-Lock Write Protection, Local Settings Audit Signatures',
+                desc: 'Sub-second electrical protection relays executing differential, overcurrent, and anti-islanding trip commands in under 4ms using peer-to-peer GOOSE messaging.'
+            },
+            'revenue_meter': {
+                title: 'High-Precision Point of Interconnection (POI) Power Meter',
+                level: 'Purdue Level 2',
+                role: 'Grid Tariff & Revenue Metering',
+                protocols: 'Modbus TCP, DNP3 Serial, MV-90',
+                phy: 'Dual Optical Ethernet + Shielded RS485 Channel',
+                redundancy: 'Primary & Backup Class 0.2S Revenue Meters',
+                cyber: 'Utility Utility Seals, Anti-Tamper Physical Switches & Hardware Memory Lock',
+                desc: 'Measures net active and reactive energy exchange at the grid Point of Common Coupling (PCC) for revenue settlement and precise PPC closed-loop feedback.'
+            },
+            'pv_inverters': {
+                title: 'Solar PV Central / String Inverters',
+                level: 'Purdue Level 1',
+                role: 'Silicon PV Power Conversion',
+                protocols: 'Modbus TCP, SunSpec Protocol',
+                phy: 'Industrial Ethernet Fiber Ring (RSTP/MRP)',
+                redundancy: 'N+1 Modular Inverter Power Stacks',
+                cyber: 'Local Hardware Over-Voltage Interlocks & Command Range Limits',
+                desc: 'Converts DC power generated by bifacial silicon PV strings into 33kV AC power, reacting to active and reactive power setpoint adjustments from the PPC.'
+            },
+            'opv_inverters': {
+                title: 'Organic PV (OPV) MPPT String Inverters',
+                level: 'Purdue Level 1',
+                role: 'Organic Thin-Film Power Conversion',
+                protocols: 'Modbus RTU over RS485 (Serial-to-Ethernet Gateway)',
+                phy: 'Shielded RS485 Daisy-Chain Loop',
+                redundancy: 'Multi-Channel Independent MPPT Trackers',
+                cyber: 'Optically Isolated RS485 Transceivers',
+                desc: 'Specialized string inverters tailored for organic photovoltaic thin-films, featuring wide MPPT voltage ranges optimized for low ambient and diffuse light conditions.'
+            },
+            'pvh_controllers': {
+                title: 'PVH Tracker Controllers (MBox & TBox)',
+                level: 'Purdue Level 1',
+                role: 'Solar Tracking & Wind Protection',
+                protocols: 'Modbus RTU over RS485, Sub-GHz LoRaWAN',
+                phy: 'RS485 Fieldbus Loop or Sub-GHz Wireless',
+                redundancy: 'Self-Powered Battery Backup per Drive Unit',
+                cyber: 'Encrypted Wireless Mesh Communications & Hardware Wind Stow Overrides',
+                desc: 'MBox weather stations collect wind speeds and direct TBox drive controllers to adjust single-axis tracker angles or initiate emergency high-wind stow.'
+            },
+            'pcs': {
+                title: 'BESS Power Conversion System (PCS Inverters)',
+                level: 'Purdue Level 1',
+                role: 'Bi-Directional AC/DC Power Inverter',
+                protocols: 'Modbus TCP, SunSpec',
+                phy: 'Industrial Ethernet Fiber Link',
+                redundancy: 'Parallel Power Module Blocks',
+                cyber: 'Hardwired Emergency Stop (E-Stop) Loop & Thermal Over-temperature Trip',
+                desc: 'Four-quadrant bi-directional converters capable of transitioning between charging battery racks and discharging power onto the 33kV collector grid in <20ms.'
+            },
+            'master_bms': {
+                title: 'BESS Master Battery Management System',
+                level: 'Purdue Level 1',
+                role: 'Container Energy & Thermal Safety Master',
+                protocols: 'Modbus TCP, CANopen, CAN 2.0B',
+                phy: 'Industrial Ethernet + Internal CAN Bus',
+                redundancy: 'Dual Master Controllers & Isolated CAN Ring',
+                cyber: 'Hardware Interlocked Contactors & Automated Aerosol Fire Triggers',
+                desc: 'Monitors container State of Charge (SoC), State of Health (SoH), cell temperature balancing, and coordinates container HVAC and fire suppression systems.'
+            },
+            'hv_transformer': {
+                title: 'HV Main Step-Up Power Transformer',
+                level: 'Purdue Level 0',
+                role: 'Primary Power Voltage Step-Up',
+                protocols: 'Hardwired Analog Signal Lines (4-20mA, PT100)',
+                phy: 'Copper Control Cables to Substation IEDs',
+                redundancy: 'Dual Cooling Fan Sets & Oil Circulation Pumps',
+                cyber: 'Mechanical Valve Lockouts & Sealed Sensor Enclosures',
+                desc: 'Primary 33kV to 110kV/220kV/400kV step-up transformer equipped with Buchholz gas relays, oil temperature indicators, and Dissolved Gas Analysis (DGA) probes.'
+            },
+            'hv_switchgear': {
+                title: 'HV Switchgear & Circuit Breakers',
+                level: 'Purdue Level 0',
+                role: 'Primary Power Switching & Fault Interruption',
+                protocols: 'Hardwired Binary I/O (Trip/Close Coils)',
+                phy: 'Control Cables Direct to Protection Relays',
+                redundancy: 'Dual Trip Coils (Trip Coil 1 & Trip Coil 2)',
+                cyber: 'Mechanical Padlocks, Key-Interlock Systems (Kirk Keys)',
+                desc: 'SF6 gas-insulated or air-insulated circuit breakers, motorized disconnectors, and earthing switches capable of clearing high-voltage short circuits.'
+            },
+            'pv_array': {
+                title: 'Solar PV Module Arrays',
+                level: 'Purdue Level 0',
+                role: 'Photovoltaic DC Energy Harvest',
+                protocols: 'Direct DC Conductors',
+                phy: '1500V DC Photovoltaic Cables',
+                redundancy: 'Multiple Parallel Inverter Strings',
+                cyber: 'Physical Fence Perimeter, Anti-Theft String Monitoring',
+                desc: 'Ground-mounted single-axis tracking bifacial monocrystalline silicon solar arrays generating DC power fed into central or string inverters.'
+            },
+            'opv_array': {
+                title: 'Organic Photovoltaics (OPV) Array',
+                level: 'Purdue Level 0',
+                role: 'Flexible Thin-Film DC Energy Harvest',
+                protocols: 'Direct DC Conductors',
+                phy: 'Low-Voltage DC Harness Cables',
+                redundancy: 'Segmented String Circuits',
+                cyber: 'UV-Resistant Protective Encapsulation',
+                desc: 'Flexible printed organic polymer thin-film modules integrated onto building surfaces, sound barriers, or lightweight mounting structures.'
+            },
+            'tracker_dbox': {
+                title: 'PVH Tracker Actuators & Motors (DBox)',
+                level: 'Purdue Level 0',
+                role: 'Physical Mechanical Slew Drive',
+                protocols: 'Hardwired Motor Power & Encoder Signals',
+                phy: 'Motor Power Cabling & Hall Effect Feedback Lines',
+                redundancy: 'Manual Hand-Crank Override Option',
+                cyber: 'Physical Weather-Proof Enclosure Seals',
+                desc: 'DBox motor drive units physically rotating single-axis torque tubes based on driving commands received from local TBox controllers.'
+            },
+            'battery_racks': {
+                title: 'BESS Battery Racks & Modules',
+                level: 'Purdue Level 0',
+                role: 'Electrochemical Energy Storage',
+                protocols: 'CAN 2.0B Internal Bus Protocol',
+                phy: 'Shielded Twisted Pair CAN Bus Cable',
+                redundancy: 'Rack-Level DC Contactor Disconnect Isolation',
+                cyber: 'Integrated Off-Gas Sensing Circuit & Thermal Runaway Isolation',
+                desc: '1500V DC LFP cell racks with tray-level BMS boards monitoring individual cell voltages, temperatures, and managing localized balancing.'
+            }
+        };
+
+        // Node Inspection Handler
+        function inspectNode(key) {
+            const data = nodesData[key];
+            if (!data) return;
+
+            // Highlight selected card
+            document.querySelectorAll('.node-card').forEach(card => card.classList.remove('selected'));
+            const activeCard = document.querySelector(`[data-node="${key}"]`);
+            if (activeCard) activeCard.classList.add('selected');
+
+            document.getElementById('inspector-level').textContent = data.level;
+
+            const body = document.getElementById('inspector-body');
+            body.innerHTML = `
+                <div class="space-y-3.5 animate-fadeIn">
+                    <div>
+                        <span class="text-[10px] font-mono bg-scada-cyan/10 text-scada-cyan px-2 py-0.5 rounded border border-scada-cyan/30 font-semibold">${data.role}</span>
+                        <h4 class="text-sm font-bold text-white mt-1.5">${data.title}</h4>
+                        <p class="text-industrial-300 mt-1 leading-relaxed text-[11px]">${data.desc}</p>
+                    </div>
+
+                    <div class="bg-industrial-950 p-2.5 rounded-lg border border-industrial-800 space-y-1">
+                        <span class="text-[10px] font-semibold text-industrial-400 uppercase tracking-wider block">Communication Protocols</span>
+                        <p class="font-mono text-scada-cyan text-[11px] font-semibold">${data.protocols}</p>
+                    </div>
+
+                    <div class="bg-industrial-950 p-2.5 rounded-lg border border-industrial-800 space-y-1">
+                        <span class="text-[10px] font-semibold text-industrial-400 uppercase tracking-wider block">Physical Interface / Media</span>
+                        <p class="text-industrial-200 text-[11px]">${data.phy}</p>
+                    </div>
+
+                    <div class="bg-industrial-950 p-2.5 rounded-lg border border-industrial-800 space-y-1">
+                        <span class="text-[10px] font-semibold text-industrial-400 uppercase tracking-wider block">Redundancy Mechanism</span>
+                        <p class="text-industrial-200 text-[11px]">${data.redundancy}</p>
+                    </div>
+
+                    <div class="bg-industrial-950 p-2.5 rounded-lg border border-industrial-800 space-y-1">
+                        <span class="text-[10px] font-semibold text-industrial-400 uppercase tracking-wider block">IEC 62443 Cyber Security Policy</span>
+                        <p class="text-industrial-300 text-[11px]">${data.cyber}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Subsystem Filtering Handler
+        function filterSubsystem(category) {
+            const cards = document.querySelectorAll('.node-card');
+            const buttons = document.querySelectorAll('.filter-btn');
+
+            buttons.forEach(btn => {
+                btn.classList.remove('bg-scada-cyan', 'text-industrial-950', 'font-bold');
+                btn.classList.add('bg-industrial-800', 'text-industrial-300');
+            });
+
+            const activeBtn = document.getElementById(`filter-${category}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-industrial-800', 'text-industrial-300');
+                activeBtn.classList.add('bg-scada-cyan', 'text-industrial-950', 'font-bold');
+            }
+
+            cards.forEach(card => {
+                const subsystems = card.getAttribute('data-subsystems') || '';
+                if (category === 'all' || subsystems.includes(category)) {
+                    card.classList.remove('dimmed');
+                } else {
+                    card.classList.add('dimmed');
+                }
+            });
+        }
+
+        // Search Filter Handler
+        function handleSearch() {
+            const query = document.getElementById('search-input').value.toLowerCase().trim();
+            const cards = document.querySelectorAll('.node-card');
+
+            cards.forEach(card => {
+                const key = card.getAttribute('data-node');
+                const data = nodesData[key];
+                if (!data) return;
+
+                const match = data.title.toLowerCase().includes(query) ||
+                              data.protocols.toLowerCase().includes(query) ||
+                              data.role.toLowerCase().includes(query) ||
+                              data.level.toLowerCase().includes(query);
+
+                if (match || query === '') {
+                    card.classList.remove('dimmed');
+                } else {
+                    card.classList.add('dimmed');
+                }
+            });
+        }
+
+        // Bus Flow Animation Toggle
+        let flowActive = true;
+        function toggleFlowAnimation() {
+            flowActive = !flowActive;
+            const buses = document.querySelectorAll('.flow-bus');
+            const btnText = document.getElementById('flow-text');
+
+            buses.forEach(bus => {
+                if (flowActive) {
+                    bus.style.display = '';
+                } else {
+                    bus.style.animation = 'none';
+                }
+            });
+
+            btnText.textContent = flowActive ? 'Bus Traffic: Animated' : 'Bus Traffic: Paused';
+        }
+
+        // PPC Failover Simulator State Machine
+        let ppcFailed = false;
+        function togglePPCFailover() {
+            ppcFailed = !ppcFailed;
+            const badge = document.getElementById('ppc-badge');
+            const icon = document.getElementById('ppc-pulse-icon');
+            const btnText = document.getElementById('ppc-sim-text');
+            const btnInd = document.getElementById('ppc-sim-indicator');
+
+            if (ppcFailed) {
+                badge.textContent = 'Master B (Active takeover <100ms)';
+                badge.className = 'text-[10px] font-mono bg-scada-red/20 text-scada-red px-2 py-0.5 rounded font-semibold';
+                icon.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 heartbeat-fault';
+                btnText.textContent = 'Restore PPC Master A';
+                btnInd.className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+
+                // Re-inspect if selected
+                if (document.querySelector('[data-node="ppc"]').classList.contains('selected')) {
+                    inspectNode('ppc');
+                }
+            } else {
+                badge.textContent = 'Master A (Active)';
+                badge.className = 'text-[10px] font-mono bg-scada-cyan/20 text-scada-cyan px-2 py-0.5 rounded font-semibold';
+                icon.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 heartbeat-active';
+                btnText.textContent = 'Simulate PPC A Failover';
+                btnInd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+
+                if (document.querySelector('[data-node="ppc"]').classList.contains('selected')) {
+                    inspectNode('ppc');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
